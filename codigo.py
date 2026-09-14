@@ -1,5 +1,7 @@
 from PIL import Image
 import numpy as np
+import scipy.sparse as sp
+import scipy.sparse.linalg as splinalg
 
 class ImageHandler:
     """Responsável por carregar, converter e salvar imagens."""
@@ -60,9 +62,11 @@ class LaplaceAssembler:
         self.tamanho_quadrado = tamanho_quadrado
 
     def _montar_matriz_a(self):
-        """Monta a matriz de coeficientes (Operador Laplaciano em diferenças finitas) apenas uma vez."""
+        """Monta a matriz de coeficientes esparsa (Operador Laplaciano em diferenças finitas)."""
         tamanho_total = self.tamanho_quadrado * self.tamanho_quadrado
-        matriz_a = np.zeros((tamanho_total, tamanho_total))
+        
+        # lil_matrix é excelente para alterar a estrutura de esparsidade incrementalmente
+        matriz_a = sp.lil_matrix((tamanho_total, tamanho_total))
         
         for l in range(1, tamanho_total + 1):
             i = int(np.ceil(l / self.tamanho_quadrado))
@@ -70,19 +74,26 @@ class LaplaceAssembler:
             if j == 0: j = self.tamanho_quadrado
             if i == 0: i = 1
             
+            row = (i-1) * self.tamanho_quadrado + (j-1)
+            
             for k in range(1, 6):
                 if k == 1 and i + 1 < self.tamanho_quadrado + 1:
-                    matriz_a[(i-1)*self.tamanho_quadrado + (j-1), i*self.tamanho_quadrado + (j-1)] = 1
+                    col = i * self.tamanho_quadrado + (j-1)
+                    matriz_a[row, col] = 1
                 if k == 2 and i - 1 > 0:
-                    matriz_a[(i-1)*self.tamanho_quadrado + (j-1), (i-2)*self.tamanho_quadrado + (j-1)] = 1
+                    col = (i-2) * self.tamanho_quadrado + (j-1)
+                    matriz_a[row, col] = 1
                 if k == 3 and j + 1 < self.tamanho_quadrado + 1:
-                    matriz_a[(i-1)*self.tamanho_quadrado + (j-1), (i-1)*self.tamanho_quadrado + j] = 1
+                    col = (i-1) * self.tamanho_quadrado + j
+                    matriz_a[row, col] = 1
                 if k == 4 and j - 1 > 0:
-                    matriz_a[(i-1)*self.tamanho_quadrado + (j-1), (i-1)*self.tamanho_quadrado + (j-2)] = 1
+                    col = (i-1) * self.tamanho_quadrado + (j-2)
+                    matriz_a[row, col] = 1
                 if k == 5:
-                    matriz_a[(i-1)*self.tamanho_quadrado + (j-1), (i-1)*self.tamanho_quadrado + (j-1)] = -4
+                    matriz_a[row, row] = -4
                     
-        return matriz_a
+        # Converte para CSR (Compressed Sparse Row) para otimizar as operações algébricas
+        return matriz_a.tocsr()
 
     def _montar_vetor_b(self, canal_matrix, valor_x, valor_y):
         """Extrai as condições de contorno (bordas do buraco) para parametrizar o vetor independente."""
@@ -95,14 +106,16 @@ class LaplaceAssembler:
             if j == 0: j = self.tamanho_quadrado
             if i == 0: i = 1
             
+            row = (i-1) * self.tamanho_quadrado + (j-1)
+            
             if i - 1 == 0:
-                vetor_b[(i-1)*self.tamanho_quadrado + (j-1)] -= canal_matrix[valor_x - 1, valor_y + (j-1)]
+                vetor_b[row] -= canal_matrix[valor_x - 1, valor_y + (j-1)]
             if i + 1 == self.tamanho_quadrado + 1:
-                vetor_b[(i-1)*self.tamanho_quadrado + (j-1)] -= canal_matrix[valor_x + self.tamanho_quadrado, valor_y + (j-1)]
+                vetor_b[row] -= canal_matrix[valor_x + self.tamanho_quadrado, valor_y + (j-1)]
             if j - 1 == 0:
-                vetor_b[(i-1)*self.tamanho_quadrado + (j-1)] -= canal_matrix[valor_x + (i-1), valor_y - 1]
+                vetor_b[row] -= canal_matrix[valor_x + (i-1), valor_y - 1]
             if j + 1 == self.tamanho_quadrado + 1:
-                vetor_b[(i-1)*self.tamanho_quadrado + (j-1)] -= canal_matrix[valor_x + (i-1), valor_y + self.tamanho_quadrado]
+                vetor_b[row] -= canal_matrix[valor_x + (i-1), valor_y + self.tamanho_quadrado]
                 
         return vetor_b
 
@@ -122,18 +135,25 @@ class LaplaceSolver:
         self.tamanho_quadrado = tamanho_quadrado
 
     def resolver_sistema(self, matriz_a, b_vermelho, b_verde, b_azul):
-        # Resolve o sistema iterando sobre os três vetores de cores
-        x_vermelho, x_verde, x_azul = [np.linalg.solve(matriz_a, b) for b in (b_vermelho, b_verde, b_azul)]
+        # O método CG retorna uma tupla (x, info), onde info == 0 significa convergência bem-sucedida.
+        x_vermelho, info_r = splinalg.cg(matriz_a, b_vermelho)
+        x_verde, info_g = splinalg.cg(matriz_a, b_verde)
+        x_azul, info_b = splinalg.cg(matriz_a, b_azul)
         
-        print("Soluções calculadas com sucesso.")
+        if any(info != 0 for info in (info_r, info_g, info_b)):
+            print("Aviso: O método do Gradiente Conjugado não convergiu perfeitamente para todos os canais.")
+        else:
+            print("Soluções calculadas com sucesso via Gradiente Conjugado.")
+            
         return x_vermelho, x_verde, x_azul
 
     def reconstruir_imagem(self, img_array, r_matrix, g_matrix, b_matrix, x_vermelho, x_verde, x_azul, valor_x, valor_y):
         for i in range(0, self.tamanho_quadrado):
             for j in range(0, self.tamanho_quadrado):
-                r_val = x_vermelho[i*self.tamanho_quadrado + j]
-                g_val = x_verde[i*self.tamanho_quadrado + j]
-                b_val = x_azul[i*self.tamanho_quadrado + j]
+                idx = i * self.tamanho_quadrado + j
+                r_val = x_vermelho[idx]
+                g_val = x_verde[idx]
+                b_val = x_azul[idx]
 
                 r_matrix[valor_x + i][valor_y + j] = int(np.clip(r_val, 0, 255))
                 g_matrix[valor_x + i][valor_y + j] = int(np.clip(g_val, 0, 255))
