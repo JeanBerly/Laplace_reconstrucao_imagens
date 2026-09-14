@@ -11,7 +11,7 @@ Para garantir essa suavidade máxima, minimizamos a variação da intensidade do
 
 $$ \Delta u = \frac{\partial^2 u}{\partial x^2} + \frac{\partial^2 u}{\partial y^2} = 0 $$
 
-Esta equação diferencial parcial (EDP) elíptica garante que o valor de cada pixel interno seja aproximadamente a média dos seus vizinhos, promovendo uma interpolação suave.
+Esta equação diferencial parcial (EDP) elíptica garante que o valor de cada pixel interno seja aproximadamente a média dos seus vizinhos, promovendo uma interpolação suave. Isso se dá pois a solução é uma função harmônica e portanto vale o teorema da média.
 
 ### 2. Discretização via Diferenças Finitas
 Como uma imagem já é um domínio discreto (um grid de pixels), aproximamos as derivadas parciais usando o esquema clássico de diferenças finitas centrais (estêncil de 5 pontos). Para um pixel na posição $(i, j)$, a aproximação discreta do Laplaciano igualada a zero resulta em:
