@@ -12,7 +12,6 @@ class ImageHandler:
             img_array = np.array(img)
             print(f"Original image array shape: {img_array.shape}")
             
-            # Utilizando copy() para termos arrays independentes
             r_matrix = img_array[:, :, 0].copy()
             g_matrix = img_array[:, :, 1].copy()
             b_matrix = img_array[:, :, 2].copy()
@@ -48,7 +47,6 @@ class DamageSimulator:
                 g_matrix[i][j] = 255
                 b_matrix[i][j] = 255
                 
-        # Atualizando o array aglomerado para possibilitar o salvamento do "buraco"
         img_array[:, :, 0] = r_matrix
         img_array[:, :, 1] = g_matrix
         img_array[:, :, 2] = b_matrix
@@ -61,71 +59,59 @@ class LaplaceAssembler:
     def __init__(self, tamanho_quadrado):
         self.tamanho_quadrado = tamanho_quadrado
 
-    def montar_sistema(self, r_matrix, g_matrix, b_matrix, valor_x, valor_y):
-        matriz_a = np.zeros((self.tamanho_quadrado * self.tamanho_quadrado, self.tamanho_quadrado * self.tamanho_quadrado))
-        vetor_b_vermelho = np.zeros(self.tamanho_quadrado * self.tamanho_quadrado)
-        vetor_b_verde = np.zeros(self.tamanho_quadrado * self.tamanho_quadrado)
-        vetor_b_azul = np.zeros(self.tamanho_quadrado * self.tamanho_quadrado)
-
-        # Montagem da matriz A e vetor B (Vermelho)
-        for l in range(1, (self.tamanho_quadrado * self.tamanho_quadrado) + 1):
+    def _montar_matriz_a(self):
+        """Monta a matriz de coeficientes (Operador Laplaciano em diferenças finitas) apenas uma vez."""
+        tamanho_total = self.tamanho_quadrado * self.tamanho_quadrado
+        matriz_a = np.zeros((tamanho_total, tamanho_total))
+        
+        for l in range(1, tamanho_total + 1):
             i = int(np.ceil(l / self.tamanho_quadrado))
             j = int(l % self.tamanho_quadrado)
-            if (j == 0): j = self.tamanho_quadrado
-            if (i == 0): i = 1
+            if j == 0: j = self.tamanho_quadrado
+            if i == 0: i = 1
             
             for k in range(1, 6):
-                if (k == 1 and i + 1 < self.tamanho_quadrado + 1):
+                if k == 1 and i + 1 < self.tamanho_quadrado + 1:
                     matriz_a[(i-1)*self.tamanho_quadrado + (j-1), i*self.tamanho_quadrado + (j-1)] = 1
-                if (k == 2 and i - 1 > 0):
+                if k == 2 and i - 1 > 0:
                     matriz_a[(i-1)*self.tamanho_quadrado + (j-1), (i-2)*self.tamanho_quadrado + (j-1)] = 1
-                if (k == 3 and j + 1 < self.tamanho_quadrado + 1):
+                if k == 3 and j + 1 < self.tamanho_quadrado + 1:
                     matriz_a[(i-1)*self.tamanho_quadrado + (j-1), (i-1)*self.tamanho_quadrado + j] = 1
-                if (k == 4 and j - 1 > 0):
+                if k == 4 and j - 1 > 0:
                     matriz_a[(i-1)*self.tamanho_quadrado + (j-1), (i-1)*self.tamanho_quadrado + (j-2)] = 1
-                if (k == 5):
+                if k == 5:
                     matriz_a[(i-1)*self.tamanho_quadrado + (j-1), (i-1)*self.tamanho_quadrado + (j-1)] = -4
                     
-            if (i - 1 == 0):
-                vetor_b_vermelho[(i-1)*self.tamanho_quadrado + (j-1)] -= r_matrix[valor_x - 1, valor_y + (j-1)]
-            if (i + 1 == self.tamanho_quadrado + 1):
-                vetor_b_vermelho[(i-1)*self.tamanho_quadrado + (j-1)] -= r_matrix[valor_x + self.tamanho_quadrado, valor_y + (j-1)]
-            if (j - 1 == 0):
-                vetor_b_vermelho[(i-1)*self.tamanho_quadrado + (j-1)] -= r_matrix[valor_x + (i-1), valor_y - 1]
-            if (j + 1 == self.tamanho_quadrado + 1):
-                vetor_b_vermelho[(i-1)*self.tamanho_quadrado + (j-1)] -= r_matrix[valor_x + (i-1), valor_y + self.tamanho_quadrado]
+        return matriz_a
 
-        # Montagem do vetor B (Verde)
-        for l in range(1, (self.tamanho_quadrado * self.tamanho_quadrado) + 1):
+    def _montar_vetor_b(self, canal_matrix, valor_x, valor_y):
+        """Extrai as condições de contorno (bordas do buraco) para parametrizar o vetor independente."""
+        tamanho_total = self.tamanho_quadrado * self.tamanho_quadrado
+        vetor_b = np.zeros(tamanho_total)
+        
+        for l in range(1, tamanho_total + 1):
             i = int(np.ceil(l / self.tamanho_quadrado))
             j = int(l % self.tamanho_quadrado)
-            if (j == 0): j = self.tamanho_quadrado
-            if (i == 0): i = 1
+            if j == 0: j = self.tamanho_quadrado
+            if i == 0: i = 1
             
-            if (i - 1 == 0):
-                vetor_b_verde[(i-1)*self.tamanho_quadrado + (j-1)] -= g_matrix[valor_x - 1, valor_y + (j-1)]
-            if (i + 1 == self.tamanho_quadrado + 1):
-                vetor_b_verde[(i-1)*self.tamanho_quadrado + (j-1)] -= g_matrix[valor_x + self.tamanho_quadrado, valor_y + (j-1)]
-            if (j - 1 == 0):
-                vetor_b_verde[(i-1)*self.tamanho_quadrado + (j-1)] -= g_matrix[valor_x + (i-1), valor_y - 1]
-            if (j + 1 == self.tamanho_quadrado + 1):
-                vetor_b_verde[(i-1)*self.tamanho_quadrado + (j-1)] -= g_matrix[valor_x + (i-1), valor_y + self.tamanho_quadrado]
+            if i - 1 == 0:
+                vetor_b[(i-1)*self.tamanho_quadrado + (j-1)] -= canal_matrix[valor_x - 1, valor_y + (j-1)]
+            if i + 1 == self.tamanho_quadrado + 1:
+                vetor_b[(i-1)*self.tamanho_quadrado + (j-1)] -= canal_matrix[valor_x + self.tamanho_quadrado, valor_y + (j-1)]
+            if j - 1 == 0:
+                vetor_b[(i-1)*self.tamanho_quadrado + (j-1)] -= canal_matrix[valor_x + (i-1), valor_y - 1]
+            if j + 1 == self.tamanho_quadrado + 1:
+                vetor_b[(i-1)*self.tamanho_quadrado + (j-1)] -= canal_matrix[valor_x + (i-1), valor_y + self.tamanho_quadrado]
+                
+        return vetor_b
 
-        # Montagem do vetor B (Azul)
-        for l in range(1, (self.tamanho_quadrado * self.tamanho_quadrado) + 1):
-            i = int(np.ceil(l / self.tamanho_quadrado))
-            j = int(l % self.tamanho_quadrado)
-            if (j == 0): j = self.tamanho_quadrado
-            if (i == 0): i = 1
-            
-            if (i - 1 == 0):
-                vetor_b_azul[(i-1)*self.tamanho_quadrado + (j-1)] -= b_matrix[valor_x - 1, valor_y + (j-1)]
-            if (i + 1 == self.tamanho_quadrado + 1):
-                vetor_b_azul[(i-1)*self.tamanho_quadrado + (j-1)] -= b_matrix[valor_x + self.tamanho_quadrado, valor_y + (j-1)]
-            if (j - 1 == 0):
-                vetor_b_azul[(i-1)*self.tamanho_quadrado + (j-1)] -= b_matrix[valor_x + (i-1), valor_y - 1]
-            if (j + 1 == self.tamanho_quadrado + 1):
-                vetor_b_azul[(i-1)*self.tamanho_quadrado + (j-1)] -= b_matrix[valor_x + (i-1), valor_y + self.tamanho_quadrado]
+    def montar_sistema(self, r_matrix, g_matrix, b_matrix, valor_x, valor_y):
+        matriz_a = self._montar_matriz_a()
+        
+        vetor_b_vermelho = self._montar_vetor_b(r_matrix, valor_x, valor_y)
+        vetor_b_verde = self._montar_vetor_b(g_matrix, valor_x, valor_y)
+        vetor_b_azul = self._montar_vetor_b(b_matrix, valor_x, valor_y)
 
         return matriz_a, vetor_b_vermelho, vetor_b_verde, vetor_b_azul
 
@@ -136,9 +122,8 @@ class LaplaceSolver:
         self.tamanho_quadrado = tamanho_quadrado
 
     def resolver_sistema(self, matriz_a, b_vermelho, b_verde, b_azul):
-        x_vermelho = np.linalg.solve(matriz_a, b_vermelho)
-        x_verde = np.linalg.solve(matriz_a, b_verde)
-        x_azul = np.linalg.solve(matriz_a, b_azul)
+        # Resolve o sistema iterando sobre os três vetores de cores
+        x_vermelho, x_verde, x_azul = [np.linalg.solve(matriz_a, b) for b in (b_vermelho, b_verde, b_azul)]
         
         print("Soluções calculadas com sucesso.")
         return x_vermelho, x_verde, x_azul
